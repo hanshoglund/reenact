@@ -158,7 +158,7 @@ import Control.Reactive.Var
 -- | 
 -- A stream of values.
 --
--- > type Event a = (Time, a)
+-- > type Event a = [(Time, a)]
 -- 
 data Event a where
     ENever  ::                             Event a
