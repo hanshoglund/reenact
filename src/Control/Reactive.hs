@@ -526,28 +526,26 @@ gatherE n = (reverse <$>) . filterE (\xs -> length xs == n) . foldpE g []
 --
 recallE :: Event a -> Event (a, a)
 recallE = recallEWith (,)
+
 -- |
 -- Pack with last value.
 --
-recallEWith :: (a -> a -> b) -> Event a -> Event b
-recallEWith f = justE . fmap k . bufferE 2
-    where
-        k []      = Nothing
-        k [x]     = Nothing
-        k (a:b:_) = Just $ f a b
+-- recallEWith :: (a -> a -> b) -> Event a -> Event b
+-- recallEWith f = justE . fmap k . bufferE 2
+--     where
+--         k []      = Nothing
+--         k [x]     = Nothing
+--         k (a:b:_) = Just $ f a b
 
-
---Ord t => (t, a) -> Event t -> Event [a]
-
-
--- recallE e 
---     = (joinMaybes' . fmap combineMaybes) 
---     $ dup Nothing `accumE` fmap (shift . Just) e
---     where      
---         shift b (a,_) = (b,a)
---         dup x         = (x,x)
---         joinMaybes'   = justE
---         combineMaybes = uncurry (liftA2 (,))
+-- Note: flipped from reactive
+recallEWith f e 
+    = (joinMaybes' . fmap combineMaybes) 
+    $ dup Nothing `accumE` fmap (shift . Just) e
+    where      
+        shift b (_,a) = (a,b)
+        dup x         = (x,x)
+        joinMaybes'   = justE
+        combineMaybes = uncurry (liftA2 f)
 
 {-
 
