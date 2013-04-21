@@ -1,5 +1,5 @@
 
-{-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables, OverloadedStrings #-}
+{-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables, OverloadedStrings, BangPatterns #-}
 
 module Control.Reactive (
 
@@ -92,6 +92,7 @@ module Control.Reactive (
 
         -- * Special functions
         seqE,
+        oftenE,
 
         -- * Creating events and reactives
         -- ** From standard library
@@ -278,14 +279,16 @@ runR (RConst v)      = return [v]
 runR (RStep v x)     = do
     v' <- readVar v
     x' <- runE x       
-    let ys = (v':x')
+    let !ys = (v':x')
     swapVar v (last ys)
+    -- putStrLn $ "RStep, size is " ++ show (length x')
     return ys
 runR (RAccum v x)   = do
     v' <- readVar v
     x' <- runE x
-    let w = (foldr (.) id x') v'
+    let !w = (foldr (.) id x') v'
     swapVar v w
+    -- putStrLn $ "RAccum, size is " ++ show (length x')
     return [w]    
 runR (RApply f x)   = do
     f' <- runR f
@@ -537,7 +540,7 @@ recallE = recallEWith (,)
 --         k [x]     = Nothing
 --         k (a:b:_) = Just $ f a b
 
--- Note: flipped from reactive
+-- Note: flipped order from Reactive
 recallEWith f e 
     = (joinMaybes' . fmap combineMaybes) 
     $ dup Nothing `accumE` fmap (shift . Just) e
@@ -856,7 +859,11 @@ time = accumR 0 ((+ kStdPulseInterval) <$ kStdPulse)
 -- > integral pulse behavior
 --
 integral :: Fractional b => Event a -> Reactive b -> Reactive b
-integral t b = sumR (snapshotWith (*) b (diffE (time `sample` t)))
+integral t b = sumR (snapshotWith (*) b (diffE (tx `sample` t)))
+    where
+        -- tx = time
+        tx :: Fractional a => Reactive a
+        tx = fmap (fromRational . toRational) $ systemTimeSecondsR
 
 
 
@@ -879,7 +886,7 @@ isStop _    = False
 -- > transport control pulse speed
 --
 transport :: (Ord t, Fractional t) => Event (TransportControl t) -> Event a -> Reactive t -> Reactive t
-transport ctrl pulse speed = position'
+transport ctrl trig speed = position'
     where          
         -- action :: Reactive (TransportControl t)
         action    = Pause `stepper` ctrl
@@ -892,7 +899,7 @@ transport ctrl pulse speed = position'
             Stop     -> 0         
             
         -- position :: Num a => Reactive a
-        position = integral pulse (speed * direction)
+        position = integral trig (speed * direction)
         startPosition = position `sampleAndHold` (filterE isStop ctrl)
         position'     = position - startPosition
 
@@ -913,7 +920,7 @@ record t x = foldpR append [] (t `snapshot` x)
 -- use 'playback'' instead.
 -- 
 playback :: Ord t => Reactive t -> Reactive [(t,a)] -> Event a
-playback t s = scatterE $ fmap snd <$> playback' kStdPulse t s
+playback t s = scatterE $ fmap snd <$> playback' oftenE t s
 
 -- |
 -- Play back a list of values.
@@ -1078,7 +1085,6 @@ runLoopUntil e = do
                 []    -> threadDelay kLoopInterval >> runLoopUntil' g
                 (a:_) -> return a
 
-kLoopInterval = 1000 * 5
 
 
 
@@ -1166,9 +1172,13 @@ fromRight (Right b) = Just b
 noFun = noOverloading "Reactive"
 noOverloading ty meth = error $ meth ++ ": No overloading for " ++ ty
 
+oftenE :: Event ()
+oftenE = pollE $ return $ Just ()
 
 kStdPulseInterval :: Fractional a => a
-kStdPulseInterval = (1/100)
+kStdPulseInterval = (1/20)
+
+kLoopInterval = round $ (1/10) * 1000000 -- us
 
 kStdPulse = pulse kStdPulseInterval
 
