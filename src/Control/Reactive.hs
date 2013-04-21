@@ -1,6 +1,23 @@
 
 {-# LANGUAGE GADTs, TypeFamilies, ScopedTypeVariables, OverloadedStrings, BangPatterns #-}
 
+-- |
+--
+-- Primitives:
+-- 
+-- * 'Event':    'mempty', 'mappend', 'fmap'
+--
+-- * 'Reactive': 'fmap', 'return', 'join', '<'
+--
+-- * 'scatterE'
+--
+-- * 'accumE' or 'accumR'
+--
+-- * 'stepper', 'apply' (or 'sample', or 'snapshotWith')
+--
+-- * 'readChanE', 'writeChanE', 'getE', 'pollE', 'putE', 'runLoopUntil'
+--
+
 module Control.Reactive (
 
         -- * Types
