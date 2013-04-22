@@ -1,5 +1,5 @@
 
-{-# LANGUAGE BangPatterns, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE BangPatterns, TypeSynonymInstances, FlexibleInstances, MagicHash #-}
 
 module Main where
 import Data.Monoid
@@ -30,14 +30,14 @@ type R = RT IO
 --------------------------------------------------------------------------------
 -- Prim
 
-memptyE :: E a
-memptyE = E $
+memptyE# :: E a
+memptyE# = E $
     \h -> return $ return ()
     -- Handlers on mempty are just ignored
     -- Unregistering does nothing
 
-mappendE :: E a -> E a -> E a
-mappendE (E ra) (E rb) = E $
+mappendE# :: E a -> E a -> E a
+mappendE# (E ra) (E rb) = E $
     \h -> do
         ua <- ra h
         ub <- rb h
@@ -45,14 +45,14 @@ mappendE (E ra) (E rb) = E $
     -- Handlers (a <> b) are registered on both a and b
     -- Unregister (a <> b) unregister the handler from both a and b
 
-fmapE :: (a -> b) -> E a -> E b
-fmapE f (E ra) = E $
+fmapE# :: (a -> b) -> E a -> E b
+fmapE# f (E ra) = E $
     \h -> ra (h . f)
     -- Handlers on (f <$> a) are composed with f and registered on a
     -- Unregister (f <$> a) unregisters the handler from a
 
-scatterE :: E [a] -> E a
-scatterE (E ra) = E $
+scatterE# :: E [a] -> E a
+scatterE# (E ra) = E $
     \h -> ra $ \x -> do
         h `mapM` x
         return ()
@@ -60,9 +60,8 @@ scatterE (E ra) = E $
     -- Unregister (scatterE a) unregisters the handler from a
 
 
-
-snapshotWith :: (a -> b -> c) -> R a -> E b -> E c
-snapshotWith f (R (b,o,e)) (E ra) = E $
+snapshotWith# :: (a -> b -> c) -> R a -> E b -> E c
+snapshotWith# f (R (b,o,e)) (E ra) = E $
     \h -> do
         b            
         ua <- ra $ \y -> do
@@ -73,8 +72,8 @@ snapshotWith f (R (b,o,e)) (E ra) = E $
     -- The modified handler pushes values from the reactive
     -- Unregistering handlers on snapshot will stop the reactive
 
-stepper  :: a -> E a -> R a
-stepper a (E ra) = R (b,o,e)
+stepper#  :: a -> E a -> R a
+stepper# a (E ra) = R (b,o,e)
     where
         b = do
             ua <- ra $ writeIORef v
@@ -92,8 +91,8 @@ stepper a (E ra) = R (b,o,e)
     -- Stopping it unregisters the handler
 {-# NOINLINE stepper #-}
 
-accumR  :: a -> E (a -> a) -> R a
-accumR a (E ra) = R (b,o,e)
+accumR#  :: a -> E (a -> a) -> R a
+accumR# a (E ra) = R (b,o,e)
     where
         b = do
             ua <- ra $ modifyIORef v
@@ -111,11 +110,11 @@ accumR a (E ra) = R (b,o,e)
     -- Stopping it unregisters the handler
 {-# NOINLINE accumR #-}
 
-pureR :: a -> R a
-pureR a = R (return (), return a, return ())
+pureR# :: a -> R a
+pureR# a = R (return (), return a, return ())
 
-apR :: R (a -> b) -> R a -> R b
-apR (R (bk,ok,ek)) (R (ba,oa,ea)) = R (bk >> ba, ok <*> oa, ek >> ea)
+apR# :: R (a -> b) -> R a -> R b
+apR# (R (bk,ok,ek)) (R (ba,oa,ea)) = R (bk >> ba, ok <*> oa, ek >> ea)
 
 -- TODO
 -- joinR    :: R (R a) -> R a
@@ -157,17 +156,17 @@ newSink = undefined
 -- API
 
 instance Monoid (E a) where
-    mempty = memptyE
-    mappend = mappendE
+    mempty = memptyE#
+    mappend = mappendE#
 instance Functor E where
-    fmap = fmapE
+    fmap = fmapE#
 instance Functor R where
     fmap f = (pure f <*>)
 instance Applicative R where
-    pure = pureR
-    (<*>) = apR
+    pure = pureR#
+    (<*>) = apR#
 -- instance Monad R where
---     return = pureR
+--     return = pureR#
 --     x >>= k = (joinR . fmap k) x
 
 filterE :: (a -> Bool) -> E a -> E a
@@ -180,7 +179,10 @@ splitE :: E (Either a b) -> (E a, E b)
 splitE e = (justE $ fromLeft <$> e, justE $ fromRight <$> e)
 
 eitherE :: E a -> E b -> E (Either a b)
-a `eitherE` b = fmap Left a <> fmap Right b
+a `eitherE` b = (Left <$> a) <> (Right <$> b)
+
+-- zipE :: (a, b) -> (E a, E b) -> E (a, b)
+-- zipE = undefined
 
 unzipE :: E (a, b) -> (E a, E b)
 unzipE e = (fst <$> e, snd <$> e)
@@ -200,32 +202,29 @@ scanlE f = foldpE (flip f)
 monoidE :: Monoid a => E a -> E a
 monoidE = scanlE mappend mempty
 
-liftMonoidE :: Monoid m => (a -> m) -> (m -> a) -> E a -> E a
-liftMonoidE i o = fmap o . monoidE . fmap i
-
 sumE :: Num a => E a -> E a
-sumE = liftMonoidE Sum getSum
+sumE = over monoidE Sum getSum
 
 productE :: Num a => E a -> E a
-productE = liftMonoidE Product getProduct
+productE = over monoidE Product getProduct
 
 allE :: E Bool -> E Bool
-allE = liftMonoidE All getAll
+allE = over monoidE All getAll
 
 anyE :: E Bool -> E Bool
-anyE = liftMonoidE Any getAny
+anyE = over monoidE Any getAny
 
 firstE :: E a -> E a
 firstE = justE . fmap snd . foldpE g (True,Nothing)
     where
-        g c (True, _)  = (False,Just c)    -- first time output
-        g c (False, _) = (False,Nothing)   -- then no output
+        g c (True, _)  = (False,Just c)
+        g c (False, _) = (False,Nothing)
             
 restE :: E a -> E a
 restE = justE . fmap snd . foldpE g (True,Nothing)
     where        
-        g c (True, _)  = (False,Nothing) -- first time no output
-        g c (False, _) = (False,Just c)  -- then output
+        g c (True, _)  = (False,Nothing)
+        g c (False, _) = (False,Just c)
 
 countE :: Enum b => E a -> E b
 countE = accumE (toEnum 0) . fmap (const succ)
@@ -248,22 +247,25 @@ gatherE n = (reverse <$>) . filterE (\xs -> length xs == n) . foldpE g []
                | length xs == n  =  x : []
                | otherwise       = error "gatherE: Wrong length"
 
+scatterE :: E [a] -> E a
+scatterE = scatterE#
+
 recallE :: E a -> E (a, a)
-recallE = recallEWith (,)
+recallE = recallWithE (,)
 
 -- Note: flipped order from Reactive
-recallEWith :: (a -> a -> b) -> E a -> E b
-recallEWith f = justE . fmap combine . (dup Nothing `accumE`) . fmap (shift . Just)
+recallWithE :: (a -> a -> b) -> E a -> E b
+recallWithE f = justE . fmap combine . (dup Nothing `accumE`) . fmap (shift . Just)
     where      
         shift b (_,a) = (a,b)
         dup x         = (x,x)
         combine       = uncurry (liftA2 f)
 
-maybeStepper :: E a -> R (Maybe a)
-maybeStepper e = Nothing `stepper` fmap Just e
+stepper  :: a -> E a -> R a
+stepper = stepper#
 
-eventToReactive :: E a -> R a
-eventToReactive = stepper (error "eventToReactive: ")
+stepper' :: E a -> R (Maybe a)
+stepper' e = Nothing `stepper` fmap Just e
 
 hold :: R a -> E b -> R (Maybe a)
 hold r = hold' Nothing (fmap Just r)
@@ -280,11 +282,17 @@ sample = snapshotWith const
 snapshot :: R a -> E b -> E (a, b)
 snapshot = snapshotWith (,)
 
+snapshotWith :: (a -> b -> c) -> R a -> E b -> E c
+snapshotWith = snapshotWith#
+
 filter' :: R (a -> Bool) -> E a -> E a
 r `filter'` e = justE $ (partial <$> r) `apply` e
 
 gate :: R Bool -> E a -> E a
 r `gate` e = (const <$> r) `filter'` e
+
+accumR :: a -> E (a -> a) -> R a
+accumR = accumR#
 
 mapAccum :: a -> E (a -> (b,a)) -> (E b, R a)
 mapAccum acc ef = (fst <$> e, stepper acc (snd <$> e))
@@ -307,20 +315,17 @@ scanlR f a e = a `stepper` scanlE f a e
 monoidR :: Monoid a => E a -> R a
 monoidR = scanlR mappend mempty
 
-liftMonoidR :: Monoid m => (a -> m) -> (m -> a) -> E a -> R a
-liftMonoidR i o = fmap o . monoidR . fmap i
-
 sumR :: Num a => E a -> R a
-sumR = liftMonoidR Sum getSum
+sumR = over monoidR Sum getSum
 
 productR :: Num a => E a -> R a
-productR = liftMonoidR Product getProduct
+productR = over monoidR Product getProduct
 
 allR :: E Bool -> R Bool
-allR = liftMonoidR All getAll
+allR = over monoidR All getAll
 
 anyR :: E Bool -> R Bool
-anyR = liftMonoidR Any getAny
+anyR = over monoidR Any getAny
 
 countR :: Enum b => E a -> R b
 countR = accumR (toEnum 0) . fmap (const succ)
@@ -329,7 +334,7 @@ toggleR :: E a -> R Bool
 toggleR = fmap odd . countR
 
 diffE :: Num a => E a -> E a
-diffE = recallEWith $ flip (-)
+diffE = recallWithE $ flip (-)
 
 -- time :: Fractional a => R a
 -- time = accumR 0 ((+ kStdPulseInterval) <$ kStdPulse)
@@ -450,3 +455,8 @@ fromLeft  (Left  a) = Just a
 fromLeft  (Right b) = Nothing
 fromRight (Left  a) = Nothing
 fromRight (Right b) = Just b                         
+over f i o = fmap o . f . fmap i
+
+eventToReactive :: E a -> R a
+eventToReactive = stepper (error "eventToReactive: ")
+
