@@ -14,6 +14,8 @@ import System.IO.Unsafe
 -- An event broadcasts (allows subscription) of input handlers.
 --
 newtype ET m r a = E { runE :: (a -> m r) -> m (m r) }
+-- newtype ET m r a = E { runE :: (a -> m r) -> m r -> m r }
+-- Type of handle
 
 -- | 
 -- A reactive is an output together with a start and stop action.
@@ -21,7 +23,9 @@ newtype ET m r a = E { runE :: (a -> m r) -> m (m r) }
 newtype RT m r a = R { runR :: (m r, m a, m r) }
 
 -- TODO better:
--- newtype R a = R { runR :: (m (m a, m r)) }
+-- newtype RT m r a = R { runR :: m (m a, m r) }
+-- newtype RT m r a = R { runR :: (m a -> m r) -> m r }
+-- Type of finally
 
 type E = ET IO ()
 type R = RT IO ()
@@ -39,6 +43,7 @@ apply#    :: R (a -> b) -> R a -> R b
 
 accum#    :: a -> E (a -> a) -> R a
 snapshot# :: (a -> b -> c) -> R a -> E b -> E c
+-- join#     :: R (R a) -> R a
 
 empty# = E $
     \h -> return $ return ()
@@ -99,12 +104,13 @@ const# a = R (return (), return a, return ())
 
 apply# (R (bk,ok,ek)) (R (ba,oa,ea)) = R (bk >> ba, ok <*> oa, ek >> ea)
 
--- TODO
--- joinR    :: R (R a) -> R a
--- joinR (R (b,i,e)) = undefined
+-- bind# :: (a -> R b) -> R a -> R b
+
+-- join#    :: R (R a) -> R a
+-- join# (R (b,i,e)) = undefined
 
 -- switcher :: R a -> E (R a) -> R a
--- switcher a e = joinR $ stepper a e
+-- switcher a e = join# $ stepper a e
 
 newSource :: IO (a -> IO (), E a)
 newSource = do
