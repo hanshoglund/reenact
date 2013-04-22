@@ -14,18 +14,18 @@ import System.IO.Unsafe
 -- | 
 -- An event broadcasts (allows subscription) of input handlers.
 --
-newtype ET m a = E { runE :: (a -> m ()) -> m (m ()) }
+newtype ET m r a = E { runE :: (a -> m r) -> m (m r) }
 
 -- | 
 -- A reactive is an output together with a start and stop action.
 --
-newtype RT m a = R { runR :: (m (), m a, m ()) }
+newtype RT m r a = R { runR :: (m r, m a, m r) }
 
 -- TODO better:
--- newtype R a = R { runR :: (m (m a, m ())) }
+-- newtype R a = R { runR :: (m (m a, m r)) }
 
-type E = ET IO
-type R = RT IO
+type E = ET IO ()
+type R = RT IO ()
 
 --------------------------------------------------------------------------------
 -- Prim
@@ -73,23 +73,7 @@ snapshotWith# f (R (b,o,e)) (E ra) = E $
     -- Unregistering handlers on snapshot will stop the reactive
 
 stepper#  :: a -> E a -> R a
-stepper# a (E ra) = R (b,o,e)
-    where
-        b = do
-            ua <- ra $ writeIORef v
-            writeIORef k (Just ua)
-        o = readIORef v
-        e = do
-            ua <- readIORef k
-            case ua of
-                Nothing  -> error "stepper: Reactive not started"
-                Just ua' -> ua'
-        !v = unsafePerformIO $ newIORef a
-        !k = unsafePerformIO $ newIORef Nothing
-    -- Starting a stepper registers a handler on the event that writes to a variable
-    -- Values are pulled from the variable
-    -- Stopping it unregisters the handler
-{-# NOINLINE stepper #-}
+stepper# a e = accumR# a (fmap const e)
 
 accumR#  :: a -> E (a -> a) -> R a
 accumR# a (E ra) = R (b,o,e)
