@@ -27,10 +27,11 @@ module Control.Reactive (
         -- * Basic combinators
         -- ** Event to reactive
         stepper,
-        switcher,
+        -- switcher,
         maybeStepper,
-        maybeSwitcher,
-        sampleAndHold,
+        -- maybeSwitcher,
+        -- sampleAndHold,
+        sampleAndHold2,
         
         -- ** Reactive to event
         apply,
@@ -205,7 +206,7 @@ data Reactive a where
     RAccum  :: Var a -> Event (a -> a)          -> Reactive a
     
     RApply  :: Reactive (a -> b) -> Reactive a  -> Reactive b
-    RJoin   :: Reactive (Reactive a)            -> Reactive a
+    -- RJoin   :: Reactive (Reactive a)            -> Reactive a
     
 
 prepE :: Event a -> IO (Event a)
@@ -253,9 +254,10 @@ prepR (RApply f x) = do
     f' <- prepR f
     x' <- prepR x
     return $ RApply f' x'
-prepR (RJoin r) = do
-    r' <- prepR r
-    return $ RJoin r'
+-- prepR (RJoin r) = do
+--     r' <- prepR r
+--     return $ RJoin r'
+
     -- r'' <- prepR r'
     -- return $ RJoin r''
 
@@ -297,29 +299,36 @@ runR (RStep v x)     = do
     v' <- readVar v
     x' <- runE x       
     let !ys = (v':x')
-    swapVar v (last ys)
+    writeVar v (last ys)
     -- putStrLn $ "RStep, size is " ++ show (length x')
     return ys
 runR (RAccum v x)   = do
     v' <- readVar v
     x' <- runE x
     let !w = (foldr (.) id x') v'
-    swapVar v w
+    writeVar v w
     -- putStrLn $ "RAccum, size is " ++ show (length x')
     return [w]    
 runR (RApply f x)   = do
     f' <- runR f
     x' <- runR x
-    return (f' <*> x')
-runR (RJoin r)   = do
-    -- Note we need an extra prepare here is the subnetwork is switched in
+    return $ f' <*> x'
+
+-- FIXME leaks here?
+-- FIXME we need an extra prepare here is the subnetwork is switched in
+-- runR (RJoin r)   = do
     -- r' <- runRS r
     -- r_ <- prepR r'
-    -- runR r_    
-    r' <- runR r
-    r_ <- mapM prepR r'
-    r_' <- mapM runR r_
-    return $ concat r_'
+    -- runR r_
+
+    -- r' <- runR r
+    -- r_ <- mapM prepR r'
+    -- r_' <- mapM runR r_
+    -- return $ concat r_'
+
+{-# INLINE runR #-}
+{-# INLINE runE #-}
+{-# INLINE runRS #-}
 
 -------------------------------------------------------------------------------------
 -- Event API
@@ -607,9 +616,9 @@ instance Applicative Reactive where
     -- pure x = x `stepper` never 
     (<*>) = RApply
 
-instance Monad Reactive where
-    return  = pure
-    x >>= k = (RJoin . fmap k) x
+-- instance Monad Reactive where
+--     return  = pure
+--     x >>= k = (RJoin . fmap k) x
 
 instance IsString a => IsString (Reactive a) where
     fromString = pure . fromString
@@ -697,8 +706,8 @@ stepper x e = RStep (newVar x) e
 -- |
 -- Switch between time-varying values.
 --
-switcher :: Reactive a -> Event (Reactive a) -> Reactive a
-r `switcher` e = RJoin (r `stepper` e)
+-- switcher :: Reactive a -> Event (Reactive a) -> Reactive a
+-- r `switcher` e = RJoin (r `stepper` e)
 -- r `switcher` e = join (r `stepper` e)
 
 -- |
@@ -710,8 +719,8 @@ maybeStepper e = Nothing `stepper` fmap Just e
 -- |
 -- Switch between time-varying values without initial.
 --
-maybeSwitcher :: Event (Reactive a) -> Reactive (Maybe a)
-maybeSwitcher e = pure Nothing `switcher` fmap (fmap Just) e
+-- maybeSwitcher :: Event (Reactive a) -> Reactive (Maybe a)
+-- maybeSwitcher e = pure Nothing `switcher` fmap (fmap Just) e
 
 -- |
 -- Step between values without initial, failing if sampled before the first step.
@@ -722,8 +731,15 @@ eventToReactive = stepper (error "eventToReactive: ")
 -- |
 -- Switch between the values of a time-varying value when an event occurs.
 --
-sampleAndHold :: Reactive b -> Event a -> Reactive b
-sampleAndHold r e = r `switcher` (pure <$> r `sample` e) 
+-- sampleAndHold :: Reactive b -> Event a -> Reactive b
+-- sampleAndHold r e = r `switcher` (pure <$> r `sample` e) 
+-- sampleAndHold r e = (liftA2 change) r (maybeStepper $ sample r e)
+--     where
+--         change a Nothing  = a
+--         change a (Just b) = b
+
+sampleAndHold2 :: b -> Reactive b -> Event a -> Reactive b
+sampleAndHold2 z r e = z `stepper` (r `sample` e) 
 
 
 -- | 
@@ -917,7 +933,9 @@ transport ctrl trig speed = position'
             
         -- position :: Num a => Reactive a
         position = integral trig (speed * direction)
-        startPosition = position `sampleAndHold` (filterE isStop ctrl)
+        -- startPosition = position `sampleAndHold` (filterE isStop ctrl)
+        startPosition = sampleAndHold2 0 position (filterE isStop ctrl)
+
         position'     = position - startPosition
 
 
