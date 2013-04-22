@@ -1,4 +1,3 @@
-
 {-# LANGUAGE BangPatterns, TypeSynonymInstances, FlexibleInstances, MagicHash #-}
 
 module Main where
@@ -30,14 +29,23 @@ type R = RT IO ()
 --------------------------------------------------------------------------------
 -- Prim
 
-memptyE# :: E a
-memptyE# = E $
+empty#    :: E a
+union#    :: E a -> E a -> E a
+scatter#  :: E [a] -> E a
+map#      :: (a -> b) -> E a -> E b
+
+const#    :: a -> R a
+apply#    :: R (a -> b) -> R a -> R b
+
+accum#    :: a -> E (a -> a) -> R a
+snapshot# :: (a -> b -> c) -> R a -> E b -> E c
+
+empty# = E $
     \h -> return $ return ()
     -- Handlers on mempty are just ignored
     -- Unregistering does nothing
 
-mappendE# :: E a -> E a -> E a
-mappendE# (E ra) (E rb) = E $
+union# (E ra) (E rb) = E $
     \h -> do
         ua <- ra h
         ub <- rb h
@@ -45,14 +53,12 @@ mappendE# (E ra) (E rb) = E $
     -- Handlers (a <> b) are registered on both a and b
     -- Unregister (a <> b) unregister the handler from both a and b
 
-fmapE# :: (a -> b) -> E a -> E b
-fmapE# f (E ra) = E $
+map# f (E ra) = E $
     \h -> ra (h . f)
     -- Handlers on (f <$> a) are composed with f and registered on a
     -- Unregister (f <$> a) unregisters the handler from a
 
-scatterE# :: E [a] -> E a
-scatterE# (E ra) = E $
+scatter# (E ra) = E $
     \h -> ra $ \x -> do
         h `mapM` x
         return ()
@@ -60,8 +66,7 @@ scatterE# (E ra) = E $
     -- Unregister (scatterE a) unregisters the handler from a
 
 
-snapshotWith# :: (a -> b -> c) -> R a -> E b -> E c
-snapshotWith# f (R (b,o,e)) (E ra) = E $
+snapshot# f (R (b,o,e)) (E ra) = E $
     \h -> do
         b            
         ua <- ra $ \y -> do
@@ -72,11 +77,7 @@ snapshotWith# f (R (b,o,e)) (E ra) = E $
     -- The modified handler pushes values from the reactive
     -- Unregistering handlers on snapshot will stop the reactive
 
-stepper#  :: a -> E a -> R a
-stepper# a e = accumR# a (fmap const e)
-
-accumR#  :: a -> E (a -> a) -> R a
-accumR# a (E ra) = R (b,o,e)
+accum# a (E ra) = R (b,o,e)
     where
         b = do
             ua <- ra $ modifyIORef v
@@ -94,11 +95,9 @@ accumR# a (E ra) = R (b,o,e)
     -- Stopping it unregisters the handler
 {-# NOINLINE accumR #-}
 
-pureR# :: a -> R a
-pureR# a = R (return (), return a, return ())
+const# a = R (return (), return a, return ())
 
-apR# :: R (a -> b) -> R a -> R b
-apR# (R (bk,ok,ek)) (R (ba,oa,ea)) = R (bk >> ba, ok <*> oa, ek >> ea)
+apply# (R (bk,ok,ek)) (R (ba,oa,ea)) = R (bk >> ba, ok <*> oa, ek >> ea)
 
 -- TODO
 -- joinR    :: R (R a) -> R a
@@ -134,21 +133,24 @@ newSource = do
 newSink :: IO (IO (Maybe a), E a -> E ())
 newSink = undefined
 
+stepper#  :: a -> E a -> R a
+stepper# a e = accum# a (fmap const e)
+
 
 
 --------------------------------------------------------------------------------
 -- API
 
 instance Monoid (E a) where
-    mempty = memptyE#
-    mappend = mappendE#
+    mempty = empty#
+    mappend = union#
 instance Functor E where
-    fmap = fmapE#
+    fmap = map#
 instance Functor R where
     fmap f = (pure f <*>)
 instance Applicative R where
-    pure = pureR#
-    (<*>) = apR#
+    pure = const#
+    (<*>) = apply#
 -- instance Monad R where
 --     return = pureR#
 --     x >>= k = (joinR . fmap k) x
@@ -232,7 +234,7 @@ gatherE n = (reverse <$>) . filterE (\xs -> length xs == n) . foldpE g []
                | otherwise       = error "gatherE: Wrong length"
 
 scatterE :: E [a] -> E a
-scatterE = scatterE#
+scatterE = scatter#
 
 recallE :: E a -> E (a, a)
 recallE = recallWithE (,)
@@ -267,7 +269,7 @@ snapshot :: R a -> E b -> E (a, b)
 snapshot = snapshotWith (,)
 
 snapshotWith :: (a -> b -> c) -> R a -> E b -> E c
-snapshotWith = snapshotWith#
+snapshotWith = snapshot#
 
 filter' :: R (a -> Bool) -> E a -> E a
 r `filter'` e = justE $ (partial <$> r) `apply` e
@@ -276,7 +278,7 @@ gate :: R Bool -> E a -> E a
 r `gate` e = (const <$> r) `filter'` e
 
 accumR :: a -> E (a -> a) -> R a
-accumR = accumR#
+accumR = accum#
 
 mapAccum :: a -> E (a -> (b,a)) -> (E b, R a)
 mapAccum acc ef = (fst <$> e, stepper acc (snd <$> e))
