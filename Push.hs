@@ -10,6 +10,7 @@ import Data.Traversable hiding (mapM)
 import Data.IORef
 import qualified Data.Map as Map
 import System.IO.Unsafe
+import Unsafe.Coerce
 
 {-
     See
@@ -74,6 +75,7 @@ snapshot# f (R r) (E e) = E $
 -- Stopping it unregisters the handler
 accum# a (E e) = R $
     \k -> do
+        putStrLn $ "----> Initializing accumulator to " ++ show (unsafeCoerce a::Int)
         v <- newIORef a
         e (modifyIORef v) $ k (readIORef v)
 
@@ -83,8 +85,16 @@ const# a = R $ \k -> k (pure a)
 apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
 -- FIXME
-join# (R a) = R $ \k -> a (\a' -> do { R b <- a'; b (\b' -> k b') })
-
+-- We need to somehow go into the continution of the extracted event just once
+join# (R a) = R $ \k -> a (\a' -> k $ h a')
+     where
+         h a1 = do
+             R a2 <- a1
+             r <- newIORef (error "No value")      
+             a2 (writeIORef r)
+             v <- readIORef r
+             v
+         
 
 newSource :: IO (a -> IO (), Event a)
 newSource = do
@@ -98,12 +108,12 @@ newSource = do
         return ()
 
     let register = \h k -> do
-        putStrLn "----> Registered handler"
+        -- putStrLn "----> Registered handler"
         (n,hs) <- readIORef r
         let hs' = Map.insert n h hs
         writeIORef r (n+1,hs')
         k
-        putStrLn "----> Unregistered handler"
+        -- putStrLn "----> Unregistered handler"
         (_,hs2) <- readIORef r
         let hs2' = Map.delete n hs2
         writeIORef r (n,hs2')
@@ -388,6 +398,8 @@ main = do
 
     (i1,e1) <- newSource
     (i2,e2) <- newSource
+    (i3,e3) <- newSource
+
     -- let ev0 = e1 `eitherE` recallE e1
     -- let (ev1,ev2) = splitE ev0
     -- let ev  = fmap ((""++) . show) ev1 <> fmap (("               "++) . show) ev2
@@ -409,17 +421,16 @@ main = do
     --     sleep 0.5
     --     i1 "There!"
     
-    let r1 = 1  `stepper` e1
-    let r2 = 10 `stepper` e2
-    let r3 = pure 0 `switcher` (fmap (const $ pure 1) $ e1)
-    
-    let ev = r3 `sample` (e1 <> e2)
+    let r3 = countR e1 `switcher` (fmap (const $ countR e2) $ e3) :: Reactive Int    
+    let ev = r3 `sample` (e1 <> e2 <> e3)
     
     start ev (putStrLn . show) $ do
-        i1 2
-        i1 3
-        i2 20
-        i2 30
+        i3 ()
+        
+        i1 ()
+        i1 ()
+        i1 ()
+        i1 ()
     
 
 
