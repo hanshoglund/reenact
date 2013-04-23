@@ -383,9 +383,13 @@ main = do
 
     (i1,e1) <- newSource
     (i2,e2) <- newSource
-    let ev0 = e1 `eitherE` recallE e1
-    let (ev1,ev2) = splitE ev0
-    let ev  = fmap ((""++) . show) ev1 <> fmap (("               "++) . show) ev2
+    -- let ev0 = e1 `eitherE` recallE e1
+    -- let (ev1,ev2) = splitE ev0
+    -- let ev  = fmap ((""++) . show) ev1 <> fmap (("               "++) . show) ev2
+
+    let r1 = "-" `stepper` e1
+    let r2 = fmap (flip replicate $ '.') $ 0 `stepper` (fmap length e1)
+    let ev = liftA2 (++) r1 r2 `sample` e1
     
     start ev putStrLn $ do
         i1 "Hello"
