@@ -35,6 +35,8 @@ newtype ReactiveT m r a = R { runR :: (m a -> m r) -> m r }
 type Event    = EventT IO ()
 type Reactive = ReactiveT IO ()
 
+-- Note: for non-GHC, do not use EventT etc
+
 --------------------------------------------------------------------------------
 -- Prim
 
@@ -93,6 +95,13 @@ stepper# a (E e) = R $
 const# a = R $ \k -> k (pure a)
 apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
+
+-- seqE
+-- runLoop
+-- getE
+-- putE
+-- getE
+-- pollR TODO change mainline
          
 
 newSource :: IO (a -> IO (), Event a)
@@ -128,14 +137,14 @@ newSink = undefined
 --------------------------------------------------------------------------------
 -- API
 
-instance Monoid (EventT IO () a) where
+instance Monoid (Event a) where
     mempty = empty#
     mappend = union#
-instance Functor (EventT IO ()) where
+instance Functor Event where
     fmap = map#
-instance Functor (ReactiveT IO ()) where
+instance Functor Reactive where
     fmap f = (pure f <*>)
-instance Applicative (ReactiveT IO ()) where
+instance Applicative Reactive where
     pure = const#
     (<*>) = apply#
 -- instance Monad (ReactiveT IO ()) where
@@ -321,7 +330,10 @@ integral t b = sumR (snapshotWith (*) b (diffE (tx `sample` t)))
         -- tx = time
         tx :: Fractional a => Reactive a
         tx = fmap (fromRational . toRational) $ systemTimeSecondsR
+
 systemTimeSecondsR = pure 0 -- FIXME
+oftenE             = mempty -- FIXME
+
 
 data TransportControl t 
     = Play      -- ^ Play from the current position.
@@ -333,15 +345,14 @@ data TransportControl t
 isStop Stop = True
 isStop _    = False
 
-{-
-transport :: (Ord t, Fractional t) => E (TransportControl t) -> Event a -> R t -> R t
+transport :: (Ord t, Fractional t) => Event (TransportControl t) -> Event a -> Reactive t -> Reactive t
 transport ctrl trig speed = position'
     where          
         -- action :: Reactive (TransportControl t)
         action    = Pause `stepper` ctrl
 
         -- direction :: Num a => Reactive a
-        direction = flip ($) $ action $ \a -> case a of
+        direction = (flip fmap) action $ \a -> case a of
             Play     -> 1
             Reverse  -> (-1)
             Pause    -> 0         
@@ -349,30 +360,100 @@ transport ctrl trig speed = position'
             
         -- position :: Num a => Reactive a
         position = integral trig (speed * direction)
-        startPosition = sampleAndHold2 0 position (filterEvent isStop ctrl)
+        startPosition = hold' 0 position (filterE isStop ctrl)
 
         position'     = position - startPosition
 
-record :: Ord t => R t -> Event a -> R [(t, a)]
+-- |
+-- Record a list of values.
+--
+record :: Ord t => Reactive t -> Event a -> Reactive [(t, a)]
 record t x = foldpR append [] (t `snapshot` x)
     where
         append x xs = xs ++ [x]
 
-playback :: Ord t => R t -> R [(t,a)] -> Event a
-playback t s = scatterE $ fmap snd <$> playback' oftenEvent t s
-oftenE = mempty -- FIXME
+-- |
+-- Play back a list of values.
+--
+-- This function will sample the time behaviour at an arbitrary
+-- small interval. To get precise control of how time is sampled,
+-- use 'playback'' instead.
+-- 
+playback :: Ord t => Reactive t -> Reactive [(t,a)] -> Event a
+playback t s = scatterE $ fmap snd <$> playback' oftenE t s
 
-playback' :: Ord t => Event b -> R t -> R [(t,a)] -> E [(t, a)]
+-- |
+-- Play back a list of values.
+-- 
+playback' :: Ord t => Event b -> Reactive t -> Reactive [(t,a)] -> Event [(t, a)]
 playback' p t s = cursor s (t `sample` p)
     where                             
-        -- cursor :: Ord t => R [(t,a)] -> Event t -> E [(a,t)]
+        -- cursor :: Ord t => Reactive [(t,a)] -> Event t -> Event [(a,t)]
         cursor s = snapshotWith (flip occs) s . recallE
 
         -- occs :: Ord t => (t,t) -> [(a,t)] -> [(a,t)]
-        occs (x,y) = filter (\(t,_) -> x < t && t <= y)-}
+        occs (x,y) = filter (\(t,_) -> x < t && t <= y)
 
+
+instance Eq (Reactive b) where
+    (==) = noFun "(==)"
+    (/=) = noFun "(/=)"
+
+instance Ord b => Ord (Reactive b) where
+    min = liftA2 min
+    max = liftA2 max
+
+instance Enum a => Enum (Reactive a) where
+    succ           = fmap succ
+    pred           = fmap pred
+    toEnum         = pure . toEnum
+    fromEnum       = noFun "fromEnum"
+    enumFrom       = noFun "enumFrom"
+    enumFromThen   = noFun "enumFromThen"
+    enumFromTo     = noFun "enumFromTo"
+    enumFromThenTo = noFun "enumFromThenTo"
+
+instance Num a => Num (Reactive a) where
+    (+)         = liftA2 (+)
+    (*)         = liftA2 (*)
+    (-)         = liftA2 (-)
+    abs         = fmap abs
+    signum      = fmap signum
+    fromInteger = pure . fromInteger
+
+instance (Num a, Ord a) => Real (Reactive a) where
+  toRational = noFun "toRational"
+
+instance Integral a => Integral (Reactive a) where
+    quot      = liftA2 quot
+    rem       = liftA2 rem
+    div       = liftA2 div
+    mod       = liftA2 mod
+    quotRem   = (fmap.fmap) unzipR (liftA2 quotRem)
+    divMod    = (fmap.fmap) unzipR (liftA2 divMod)
+    toInteger = noFun "toInteger"
+
+instance Fractional b => Fractional (Reactive b) where
+    recip        = fmap recip
+    fromRational = pure . fromRational
+
+instance Floating b => Floating (Reactive b) where
+    pi    = pure pi
+    sqrt  = fmap sqrt
+    exp   = fmap exp
+    log   = fmap log
+    sin   = fmap sin
+    cos   = fmap cos
+    asin  = fmap asin
+    atan  = fmap atan
+    acos  = fmap acos
+    sinh  = fmap sinh
+    cosh  = fmap cosh
+    asinh = fmap asinh
+    atanh = fmap atanh
+    acosh = fmap acosh    
                                                            
-
+noFun x = error x
 
 
 
