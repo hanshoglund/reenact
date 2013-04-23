@@ -372,6 +372,9 @@ a `eitherE` b = fmap Left a `mergeE` fmap Right b
 seqE :: Event a -> Event b -> Event b
 seqE = ESeq
 
+oftenE :: Event ()
+oftenE = pollE $ return $ Just ()
+
 -- |
 -- Map over values (synonym for @f \<$> xs@).
 mapE :: (a -> b) -> Event a -> Event b
@@ -1207,8 +1210,6 @@ fromRight (Right b) = Just b
 noFun = noOverloading "Reactive"
 noOverloading ty meth = error $ meth ++ ": No overloading for " ++ ty
 
-oftenE :: Event ()
-oftenE = pollE $ return $ Just ()
 
 kStdPulseInterval :: Fractional a => a
 kStdPulseInterval = (1/20)
