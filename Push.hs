@@ -96,13 +96,10 @@ stepperPrim a (E e) = R $
 constPrim a = R $ \k -> k (pure a)
 applyPrim (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
-
--- seqE
 -- runLoop
--- getE
--- putE
--- getE
--- pollR TODO change mainline
+-- pollR :: IO a -> Reactive a
+-- getE :: IO a -> Event a
+-- putE :: (a -> IO ()) -> Event a -> Event a
          
 
 newSource :: IO (a -> IO (), Event a)
@@ -334,6 +331,11 @@ integral t b = sumR (snapshotWith (*) b (diffE (tx `sample` t)))
 
 systemTimeSecondsR = pure 0 -- FIXME
 oftenE             = mempty -- FIXME
+
+seqE :: Event a -> Event b -> Event b
+a `seqE` b = justE $ fmap lefts $ a `eitherE` b
+    where
+        lefts = either (const Nothing) Just
 
 
 data TransportControl t 
