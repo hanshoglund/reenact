@@ -2,6 +2,7 @@
 
 module Main where
 import Data.Monoid
+import Control.Concurrent (threadDelay)
 import Data.Maybe
 import Data.Either
 import Control.Applicative
@@ -9,6 +10,12 @@ import Data.Traversable hiding (mapM)
 import Data.IORef
 import qualified Data.Map as Map
 import System.IO.Unsafe
+
+{-
+    See
+        http://www.haskellforall.com/2012/12/the-continuation-monad.html
+        http://paolocapriotti.com/blog/2012/06/04/continuation-based-relative-time-frp/
+-}
 
 -- | 
 -- An event broadcasts (allows subscription) of input handlers.
@@ -42,6 +49,7 @@ map#      :: (a -> b) -> E a -> E b
 const#    :: a -> R a
 apply#    :: R (a -> b) -> R a -> R b
 
+stepper#  :: a -> E a -> R a
 accum#    :: a -> E (a -> a) -> R a
 snapshot# :: (a -> b -> c) -> R a -> E b -> E c
 -- join#     :: R (R a) -> R a
@@ -78,19 +86,7 @@ accum# a (E e) = R $
         v <- newIORef a
         e (modifyIORef v) $ k (readIORef v)
 
-
--- snapshot# f (R rr) (E ra) = E $
---     \h k -> let h' y = do { x <- o; h (f x y) }
---             in b >> ra h' (k >> e)
--- 
--- accum# a (E ra) = R $
---     \k -> do
---     where
---         b = ra (modifyIORef v) (return ())
---         o = readIORef v
---         e = return () -- FIXME unregister
---         !v = unsafePerformIO $ newIORef a
--- {-# NOINLINE accumR #-}
+stepper# a e = accum# a (fmap const e)
 
 const# a = R $ \k -> k (pure a)
 apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
@@ -123,8 +119,6 @@ newSource = do
 newSink :: IO (IO (Maybe a), E a -> E ())
 newSink = undefined
 
-stepper#  :: a -> E a -> R a
-stepper# a e = accum# a (fmap const e)
 
 
 
@@ -403,10 +397,15 @@ main = do
     
     start ev putStrLn $ do
         i1 "Hello"
+        sleep 0.5
         i1 "This"
+        sleep 0.5
         i1 "Is"
+        sleep 0.5
         i1 "Cool"
+        sleep 2
         i1 "Right?"
+        sleep 0.5
         i1 "There!"
     
     
@@ -428,6 +427,7 @@ fromLeft  (Right b) = Nothing
 fromRight (Left  a) = Nothing
 fromRight (Right b) = Just b                         
 over f i o = fmap o . f . fmap i
+sleep s = threadDelay (round $ s*1000000)
 
 eventToReactive :: E a -> R a
 eventToReactive = stepper (error "eventToReactive: ")
