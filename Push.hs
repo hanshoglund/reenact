@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, TypeSynonymInstances, FlexibleInstances, MagicHash #-}
+{-# LANGUAGE BangPatterns, FlexibleInstances, MagicHash #-}
 
 module Main where
 import Data.Monoid
@@ -125,14 +125,14 @@ newSink = undefined
 --------------------------------------------------------------------------------
 -- API
 
-instance Monoid (Event a) where
+instance Monoid (EventT IO () a) where
     mempty = empty#
     mappend = union#
-instance Functor Event where
+instance Functor (EventT IO ()) where
     fmap = map#
-instance Functor Reactive where
+instance Functor (ReactiveT IO ()) where
     fmap f = (pure f <*>)
-instance Applicative Reactive where
+instance Applicative (ReactiveT IO ()) where
     pure = const#
     (<*>) = apply#
 -- instance Monad R where
