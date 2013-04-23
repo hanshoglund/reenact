@@ -44,7 +44,7 @@ apply#    :: Reactive (a -> b) -> Reactive a -> Reactive b
 stepper#  :: a -> Event a -> Reactive a
 accum#    :: a -> Event (a -> a) -> Reactive a
 snapshot# :: (a -> b -> c) -> Reactive a -> Event b -> Event c
--- join#     :: R (Reactive a) -> Reactive a
+join#     :: Reactive (Reactive a) -> Reactive a
 
 -- Handlers on empty are just ignored
 empty# = E $
@@ -60,15 +60,14 @@ map# f (E a) = E $
 
 -- Handlers on (scatterEvent a) are composed with traverse and registered on a
 scatter# (E a) = E $
-    \h k -> let h' x = h `mapM_` x
-            in a h' k
+    \h k -> a (mapM_ h) k
 
 -- Registering handlers on snapshot will start the reactive, and register a modified handler on e
 -- The modified handler pushes values from the reactive
 -- Unregistering handlers on snapshot will stop the reactive
 snapshot# f (R r) (E e) = E $ 
     \h k -> let h' x y = do { x' <- x; h $ f x' y }
-            in r $ \x2 -> e (h' x2) k
+            in r $ \x -> e (h' x) k
     
 -- Starting a stepper registers a handler on the event that modifies a variable
 -- Values are pulled from the variable
@@ -83,6 +82,9 @@ stepper# a e = accum# a (fmap const e)
 const# a = R $ \k -> k (pure a)
 apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
+-- FIXME
+join# (R a) = R $ \k -> a (\a' -> do { R b <- a'; b (\b' -> k b') })
+
 
 newSource :: IO (a -> IO (), Event a)
 newSource = do
@@ -96,12 +98,12 @@ newSource = do
         return ()
 
     let register = \h k -> do
-        -- putStrLn "----> Registered handler"
+        putStrLn "----> Registered handler"
         (n,hs) <- readIORef r
         let hs' = Map.insert n h hs
         writeIORef r (n+1,hs')
         k
-        -- putStrLn "----> Unregistered handler"
+        putStrLn "----> Unregistered handler"
         (_,hs2) <- readIORef r
         let hs2' = Map.delete n hs2
         writeIORef r (n,hs2')
@@ -127,9 +129,9 @@ instance Functor (ReactiveT IO ()) where
 instance Applicative (ReactiveT IO ()) where
     pure = const#
     (<*>) = apply#
--- instance Monad R where
---     return = pureR#
---     x >>= k = (joinR . fmap k) x
+instance Monad (ReactiveT IO ()) where
+    return = const#
+    x >>= k = (join# . fmap k) x
 
 filterE :: (a -> Bool) -> Event a -> Event a
 filterE p = scatterE . fmap (filter p . single)
@@ -225,6 +227,9 @@ recallWithE f = justE . fmap combine . (dup Nothing `accumE`) . fmap (shift . Ju
 
 stepper  :: a -> Event a -> Reactive a
 stepper = stepper#
+
+switcher  :: Reactive a -> Event (Reactive a) -> Reactive a
+switcher a = join# . stepper a
 
 stepper' :: Event a -> Reactive (Maybe a)
 stepper' e = Nothing `stepper` fmap Just e
@@ -387,23 +392,34 @@ main = do
     -- let (ev1,ev2) = splitE ev0
     -- let ev  = fmap ((""++) . show) ev1 <> fmap (("               "++) . show) ev2
 
-    let r1 = "-" `stepper` e1
-    let r2 = fmap (flip replicate $ '.') $ 0 `stepper` (fmap length e1)
-    let ev = liftA2 (++) r1 r2 `sample` e1
+    -- let r1 = "-" `stepper` e1
+    -- let r2 = fmap (flip replicate $ '.') $ 0 `stepper` (fmap length e1)
+    -- let ev = liftA2 (++) r1 r2 `sample` e1
+    -- 
+    -- start ev putStrLn $ do
+    --     i1 "Hello"
+    --     sleep 0.5
+    --     i1 "This"
+    --     sleep 0.5
+    --     i1 "Is"
+    --     sleep 0.5
+    --     i1 "Cool"
+    --     sleep 2
+    --     i1 "Right?"
+    --     sleep 0.5
+    --     i1 "There!"
     
-    start ev putStrLn $ do
-        i1 "Hello"
-        sleep 0.5
-        i1 "This"
-        sleep 0.5
-        i1 "Is"
-        sleep 0.5
-        i1 "Cool"
-        sleep 2
-        i1 "Right?"
-        sleep 0.5
-        i1 "There!"
+    let r1 = 1  `stepper` e1
+    let r2 = 10 `stepper` e2
+    let r3 = pure 0 `switcher` (fmap (const $ pure 1) $ e1)
     
+    let ev = r3 `sample` (e1 <> e2)
+    
+    start ev (putStrLn . show) $ do
+        i1 2
+        i1 3
+        i2 20
+        i2 30
     
 
 
