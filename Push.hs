@@ -20,22 +20,14 @@ import System.IO.Unsafe
 -- | 
 -- An event broadcasts (allows subscription) of input handlers.
 --
--- newtype EventT m r a = E { runE :: (a -> m r) -> m (m r) }
 newtype EventT m r a = E { runE :: (a -> m r) -> (m r -> m r) }
--- Type of handle
 
 -- | 
 -- A reactive is an output together with a start and stop action.
 --
--- newtype ReactiveT m r a = R { runR :: (m r, m a, m r) }
 newtype ReactiveT m r a = R { runR :: (m a -> m r) -> m r }
 
--- TODO better:
--- newtype ReactiveT m r a = R { runR :: m (m a, m r) }
--- newtype ReactiveT m r a = R { runR :: (m a -> m r) -> m r }
--- Type of finally
-
-type Event = EventT IO ()
+type Event    = EventT IO ()
 type Reactive = ReactiveT IO ()
 
 --------------------------------------------------------------------------------
