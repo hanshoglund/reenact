@@ -13,14 +13,15 @@ import System.IO.Unsafe
 -- | 
 -- An event broadcasts (allows subscription) of input handlers.
 --
-newtype ET m r a = E { runE :: (a -> m r) -> m (m r) }
--- newtype ET m r a = E { runE :: (a -> m r) -> m r -> m r }
+-- newtype ET m r a = E { runE :: (a -> m r) -> m (m r) }
+newtype ET m r a = E { runE :: (a -> m r) -> (m r -> m r) }
 -- Type of handle
 
 -- | 
 -- A reactive is an output together with a start and stop action.
 --
-newtype RT m r a = R { runR :: (m r, m a, m r) }
+-- newtype RT m r a = R { runR :: (m r, m a, m r) }
+newtype RT m r a = R { runR :: (m a -> m r) -> m r }
 
 -- TODO better:
 -- newtype RT m r a = R { runR :: m (m a, m r) }
@@ -45,72 +46,55 @@ accum#    :: a -> E (a -> a) -> R a
 snapshot# :: (a -> b -> c) -> R a -> E b -> E c
 -- join#     :: R (R a) -> R a
 
+-- Handlers on empty are just ignored
 empty# = E $
-    \h -> return $ return ()
-    -- Handlers on mempty are just ignored
-    -- Unregistering does nothing
+    \_ k -> k
 
-union# (E ra) (E rb) = E $
-    \h -> do
-        ua <- ra h
-        ub <- rb h
-        return $ ua >> ub
-    -- Handlers (a <> b) are registered on both a and b
-    -- Unregister (a <> b) unregister the handler from both a and b
+-- Handlers on (a <> b) are registered on both a and b
+union# (E a) (E b) = E $
+    \h k -> a h (b h k)
 
-map# f (E ra) = E $
-    \h -> ra (h . f)
-    -- Handlers on (f <$> a) are composed with f and registered on a
-    -- Unregister (f <$> a) unregisters the handler from a
+-- Handlers on (f <$> a) are composed with f and registered on a
+map# f (E a) = E $
+    \h k -> a (h . f) k
 
-scatter# (E ra) = E $
-    \h -> ra $ \x -> do
-        h `mapM` x
-        return ()
-    -- Handlers on (scatterE a) are composed with traverse and registered on a
-    -- Unregister (scatterE a) unregisters the handler from a
+-- Handlers on (scatterE a) are composed with traverse and registered on a
+scatter# (E a) = E $
+    \h k -> let h' x = h `mapM_` x
+            in a h' k
+
+-- Registering handlers on snapshot will start the reactive, and register a modified handler on e
+-- The modified handler pushes values from the reactive
+-- Unregistering handlers on snapshot will stop the reactive
+snapshot# f (R r) (E e) = E $ 
+    \h k -> let h' x y = do { x' <- x; h $ f x' y }
+            in r $ \x2 -> e (h' x2) k
+    
+-- Starting a stepper registers a handler on the event that modifies a variable
+-- Values are pulled from the variable
+-- Stopping it unregisters the handler
+accum# a (E e) = R $
+    \k -> do
+        v <- newIORef a
+        e (modifyIORef v) $ k (readIORef v)
 
 
-snapshot# f (R (b,o,e)) (E ra) = E $
-    \h -> do
-        b            
-        ua <- ra $ \y -> do
-            x <- o
-            h $ f x y
-        return $ e >> ua
-    -- Registering handlers on snapshot will start the reactive, and register a modified handler on e
-    -- The modified handler pushes values from the reactive
-    -- Unregistering handlers on snapshot will stop the reactive
+-- snapshot# f (R rr) (E ra) = E $
+--     \h k -> let h' y = do { x <- o; h (f x y) }
+--             in b >> ra h' (k >> e)
+-- 
+-- accum# a (E ra) = R $
+--     \k -> do
+--     where
+--         b = ra (modifyIORef v) (return ())
+--         o = readIORef v
+--         e = return () -- FIXME unregister
+--         !v = unsafePerformIO $ newIORef a
+-- {-# NOINLINE accumR #-}
 
-accum# a (E ra) = R (b,o,e)
-    where
-        b = do
-            ua <- ra $ modifyIORef v
-            writeIORef k (Just ua)
-        o = readIORef v
-        e = do
-            ua <- readIORef k
-            case ua of
-                Nothing  -> error "accumR: Reactive not started"
-                Just ua' -> ua'
-        !v = unsafePerformIO $ newIORef a
-        !k = unsafePerformIO $ newIORef Nothing
-    -- Starting a stepper registers a handler on the event that modifies a variable
-    -- Values are pulled from the variable
-    -- Stopping it unregisters the handler
-{-# NOINLINE accumR #-}
+const# a = R $ \k -> k (pure a)
+apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
-const# a = R (return (), return a, return ())
-
-apply# (R (bk,ok,ek)) (R (ba,oa,ea)) = R (bk >> ba, ok <*> oa, ek >> ea)
-
--- bind# :: (a -> R b) -> R a -> R b
-
--- join#    :: R (R a) -> R a
--- join# (R (b,i,e)) = undefined
-
--- switcher :: R a -> E (R a) -> R a
--- switcher a e = join# $ stepper a e
 
 newSource :: IO (a -> IO (), E a)
 newSource = do
@@ -123,16 +107,16 @@ newSource = do
         traverse (\h -> h x) hs
         return ()
 
-    let register = \h -> do
+    let register = \h k -> do
         -- putStrLn "----> Registered handler"
         (n,hs) <- readIORef r
         let hs' = Map.insert n h hs
         writeIORef r (n+1,hs')
-        return $ do
-            -- putStrLn "----> Unregistered handler"
-            (_,hs) <- readIORef r
-            let hs' = Map.delete n hs
-            writeIORef r (n,hs')
+        k
+        -- putStrLn "----> Unregistered handler"
+        (_,hs2) <- readIORef r
+        let hs2' = Map.delete n hs2
+        writeIORef r (n,hs2')
     
     return (write, E register)
 
@@ -396,14 +380,8 @@ playback' p t s = cursor s (t `sample` p)
 
 
 -- Util
-run :: (a -> IO ()) -> E a -> IO ()
-run k e = runE e k >> return ()
-
-start :: (a -> IO ()) -> E a -> IO (IO ())
-start k e = runE e k
-
-stop :: IO () -> IO ()
-stop = id
+start :: E a -> (a -> IO ()) -> IO () -> IO ()
+start = runE
 
 main = do
     -- (i1,e1) <- newSource              
@@ -419,15 +397,17 @@ main = do
 
     (i1,e1) <- newSource
     (i2,e2) <- newSource
-    events <- start (putStrLn . show) $ e1 `eitherE` gatherE 3 e1
-
-    i1 "Hello"
-    i1 "This"
-    i1 "Is"
-    i1 "Cool"
-    i1 "Right?"
-    i1 "There!"
-    stop events
+    let ev0 = e1 `eitherE` recallE e1
+    let (ev1,ev2) = splitE ev0
+    let ev  = fmap ((""++) . show) ev1 <> fmap (("               "++) . show) ev2
+    
+    start ev putStrLn $ do
+        i1 "Hello"
+        i1 "This"
+        i1 "Is"
+        i1 "Cool"
+        i1 "Right?"
+        i1 "There!"
     
     
 
