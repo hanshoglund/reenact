@@ -21,7 +21,7 @@ import Unsafe.Coerce
 -- | 
 -- An event broadcasts (allows subscription) of input handlers.
 --
-newtype EventT m r a = E { runE :: (a -> m r) -> (m r -> m r) }
+newtype EventT m r a = E { runE :: (a -> m r) -> m r -> m r }
 
 -- | 
 -- A reactive is an output together with a start and stop action.
@@ -45,7 +45,7 @@ apply#    :: Reactive (a -> b) -> Reactive a -> Reactive b
 stepper#  :: a -> Event a -> Reactive a
 accum#    :: a -> Event (a -> a) -> Reactive a
 snapshot# :: (a -> b -> c) -> Reactive a -> Event b -> Event c
-join#     :: Reactive (Reactive a) -> Reactive a
+-- join#     :: Reactive (Reactive a) -> Reactive a
 
 -- Handlers on empty are just ignored
 empty# = E $
@@ -79,21 +79,16 @@ accum# a (E e) = R $
         v <- newIORef a
         e (modifyIORef v) $ k (readIORef v)
 
-stepper# a e = accum# a (fmap const e)
-
+-- stepper# a e = accum# a (fmap const e)
+stepper# a (E e) = R $
+    \k -> do
+        putStrLn $ "----> Initializing stepper to " ++ show (unsafeCoerce a::Int)
+        v <- newIORef a
+        e (writeIORef v) $ k (readIORef v)
+    
 const# a = R $ \k -> k (pure a)
 apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
--- FIXME
--- We need to somehow go into the continution of the extracted event just once
-join# (R a) = R $ \k -> a (\a' -> k $ h a')
-     where
-         h a1 = do
-             R a2 <- a1
-             r <- newIORef (error "No value")      
-             a2 (writeIORef r)
-             v <- readIORef r
-             v
          
 
 newSource :: IO (a -> IO (), Event a)
@@ -139,9 +134,9 @@ instance Functor (ReactiveT IO ()) where
 instance Applicative (ReactiveT IO ()) where
     pure = const#
     (<*>) = apply#
-instance Monad (ReactiveT IO ()) where
-    return = const#
-    x >>= k = (join# . fmap k) x
+-- instance Monad (ReactiveT IO ()) where
+    -- return = const#
+    -- x >>= k = (join# . fmap k) x
 
 filterE :: (a -> Bool) -> Event a -> Event a
 filterE p = scatterE . fmap (filter p . single)
@@ -238,8 +233,8 @@ recallWithE f = justE . fmap combine . (dup Nothing `accumE`) . fmap (shift . Ju
 stepper  :: a -> Event a -> Reactive a
 stepper = stepper#
 
-switcher  :: Reactive a -> Event (Reactive a) -> Reactive a
-switcher a = join# . stepper a
+-- switcher  :: Reactive a -> Event (Reactive a) -> Reactive a
+-- switcher a = join# . stepper a
 
 stepper' :: Event a -> Reactive (Maybe a)
 stepper' e = Nothing `stepper` fmap Just e
@@ -421,17 +416,16 @@ main = do
     --     sleep 0.5
     --     i1 "There!"
     
-    let r3 = countR e1 `switcher` (fmap (const $ countR e2) $ e3) :: Reactive Int    
+    let r3 = 0 `stepper` countE e2 :: Reactive Int    
     let ev = r3 `sample` (e1 <> e2 <> e3)
     
-    start ev (putStrLn . show) $ do
+    start (ev) (putStrLn . show) $ do
+        i1 ()
+        i2 ()
         i3 ()
-        
-        i1 ()
-        i1 ()
-        i1 ()
-        i1 ()
-    
+        i2 ()
+        i2 ()
+        return ()
 
 
 
