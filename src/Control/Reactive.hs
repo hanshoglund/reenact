@@ -1061,13 +1061,8 @@ getLineE = getE getLine
 putLineE :: Event String -> Event String
 putLineE = putE putStrLn
 
--- type Time = DiffTime
-
-systemTimeE :: Event UTCTime
-systemTimeE = pollE (Just <$> getCurrentTime)
-
 systemTimeR :: Reactive UTCTime 
-systemTimeR = eventToReactive systemTimeE
+systemTimeR = eventToReactive $ pollE (Just <$> getCurrentTime)
 
 systemTimeSecondsR :: Reactive DiffTime
 systemTimeSecondsR = fmap utctDayTime systemTimeR
