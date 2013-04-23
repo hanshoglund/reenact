@@ -1,4 +1,5 @@
-{-# LANGUAGE BangPatterns, FlexibleInstances, MagicHash #-}
+
+{-# LANGUAGE BangPatterns, FlexibleInstances #-}
 
 module Main where
 import Data.Monoid
@@ -40,60 +41,60 @@ type Reactive = ReactiveT IO ()
 --------------------------------------------------------------------------------
 -- Prim
 
-empty#    :: Event a
-union#    :: Event a -> Event a -> Event a
-scatter#  :: Event [a] -> Event a
-map#      :: (a -> b) -> Event a -> Event b
+emptyPrim    :: Event a
+unionPrim    :: Event a -> Event a -> Event a
+scatterPrim  :: Event [a] -> Event a
+mapPrim      :: (a -> b) -> Event a -> Event b
 
-const#    :: a -> Reactive a
-apply#    :: Reactive (a -> b) -> Reactive a -> Reactive b
+constPrim    :: a -> Reactive a
+applyPrim    :: Reactive (a -> b) -> Reactive a -> Reactive b
 
-stepper#  :: a -> Event a -> Reactive a
-accum#    :: a -> Event (a -> a) -> Reactive a
-snapshot# :: (a -> b -> c) -> Reactive a -> Event b -> Event c
--- join#     :: Reactive (Reactive a) -> Reactive a
+stepperPrim  :: a -> Event a -> Reactive a
+accumPrim    :: a -> Event (a -> a) -> Reactive a
+snapshotPrim :: (a -> b -> c) -> Reactive a -> Event b -> Event c
+-- joinPrim     :: Reactive (Reactive a) -> Reactive a
 
 -- Handlers on empty are just ignored
-empty# = E $
+emptyPrim = E $
     \_ k -> k
 
 -- Handlers on (a <> b) are registered on both a and b
-union# (E a) (E b) = E $
+unionPrim (E a) (E b) = E $
     \h k -> a h (b h k)
 
 -- Handlers on (f <$> a) are composed with f and registered on a
-map# f (E a) = E $
+mapPrim f (E a) = E $
     \h k -> a (h . f) k
 
 -- Handlers on (scatterEvent a) are composed with traverse and registered on a
-scatter# (E a) = E $
+scatterPrim (E a) = E $
     \h k -> a (mapM_ h) k
 
 -- Registering handlers on snapshot will start the reactive, and register a modified handler on e
 -- The modified handler pushes values from the reactive
 -- Unregistering handlers on snapshot will stop the reactive
-snapshot# f (R r) (E e) = E $ 
+snapshotPrim f (R r) (E e) = E $ 
     \h k -> let h' x y = do { x' <- x; h $ f x' y }
             in r $ \x -> e (h' x) k
     
 -- Starting a stepper registers a handler on the event that modifies a variable
 -- Values are pulled from the variable
 -- Stopping it unregisters the handler
-accum# a (E e) = R $
+accumPrim a (E e) = R $
     \k -> do
         putStrLn $ "----> Initializing accumulator to " ++ show (unsafeCoerce a::Int)
         v <- newIORef a
         e (modifyIORef v) $ k (readIORef v)
 
--- stepper# a e = accum# a (fmap const e)
-stepper# a (E e) = R $
+-- stepperPrim a e = accumPrim a (fmap const e)
+stepperPrim a (E e) = R $
     \k -> do
         putStrLn $ "----> Initializing stepper to " ++ show (unsafeCoerce a::Int)
         v <- newIORef a
         e (writeIORef v) $ k (readIORef v)
     
-const# a = R $ \k -> k (pure a)
-apply# (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
+constPrim a = R $ \k -> k (pure a)
+applyPrim (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
 
 -- seqE
@@ -138,18 +139,18 @@ newSink = undefined
 -- API
 
 instance Monoid (Event a) where
-    mempty = empty#
-    mappend = union#
+    mempty = emptyPrim
+    mappend = unionPrim
 instance Functor Event where
-    fmap = map#
+    fmap = mapPrim
 instance Functor Reactive where
     fmap f = (pure f <*>)
 instance Applicative Reactive where
-    pure = const#
-    (<*>) = apply#
+    pure = constPrim
+    (<*>) = applyPrim
 -- instance Monad (ReactiveT IO ()) where
-    -- return = const#
-    -- x >>= k = (join# . fmap k) x
+    -- return = constPrim
+    -- x >>= k = (joinPrim . fmap k) x
 
 filterE :: (a -> Bool) -> Event a -> Event a
 filterE p = scatterE . fmap (filter p . single)
@@ -230,7 +231,7 @@ gatherE n = (reverse <$>) . filterE (\xs -> length xs == n) . foldpE g []
                | otherwise       = error "gatherE: Wrong length"
 
 scatterE :: Event [a] -> Event a
-scatterE = scatter#
+scatterE = scatterPrim
 
 recallE :: Event a -> Event (a, a)
 recallE = recallWithE (,)
@@ -244,10 +245,10 @@ recallWithE f = justE . fmap combine . (dup Nothing `accumE`) . fmap (shift . Ju
         combine       = uncurry (liftA2 f)
 
 stepper  :: a -> Event a -> Reactive a
-stepper = stepper#
+stepper = stepperPrim
 
 -- switcher  :: Reactive a -> Event (Reactive a) -> Reactive a
--- switcher a = join# . stepper a
+-- switcher a = joinPrim . stepper a
 
 stepper' :: Event a -> Reactive (Maybe a)
 stepper' e = Nothing `stepper` fmap Just e
@@ -268,7 +269,7 @@ snapshot :: Reactive a -> Event b -> Event (a, b)
 snapshot = snapshotWith (,)
 
 snapshotWith :: (a -> b -> c) -> Reactive a -> Event b -> Event c
-snapshotWith = snapshot#
+snapshotWith = snapshotPrim
 
 filter' :: Reactive (a -> Bool) -> Event a -> Event a
 r `filter'` e = justE $ (partial <$> r) `apply` e
@@ -277,7 +278,7 @@ gate :: Reactive Bool -> Event a -> Event a
 r `gate` e = (const <$> r) `filter'` e
 
 accumR :: a -> Event (a -> a) -> Reactive a
-accumR = accum#
+accumR = accumPrim
 
 mapAccum :: a -> Event (a -> (b,a)) -> (Event b, Reactive a)
 mapAccum acc ef = (fst <$> e, stepper acc (snd <$> e))
