@@ -29,8 +29,7 @@ newtype EventT m r a = E { runE :: (a -> m r) -> m r -> m r }
 -- A reactive is an output together with a start and stop action.
 --
 newtype ReactiveT m r a = R { runR :: (m a -> m r) -> m r }
-    -- arg 1 is the handler to register
-    -- arg 2 is the continuation run while the handler is registered
+    -- arg 1 is the continuation run while the handler is registered
         -- this one has an output to sample the current value in scope
 
 type Event    = EventT IO ()
