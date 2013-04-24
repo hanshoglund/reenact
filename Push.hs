@@ -70,6 +70,7 @@ mapPrim f (E a) = E $
 scatterPrim (E a) = E $
     \h k -> a (mapM_ h) k
 
+
 -- Registering handlers on snapshot will start the reactive, and register a modified handler on e
 -- The modified handler pushes values from the reactive
 -- Unregistering handlers on snapshot will stop the reactive
@@ -96,11 +97,6 @@ stepperPrim a (E e) = R $
 constPrim a = R $ \k -> k (pure a)
 applyPrim (R f) (R a) = R $ \k -> f (\f' -> a (\a' -> k $ f' <*> a'))
 
--- runLoop
--- pollR :: IO a -> Reactive a
--- getE :: IO a -> Event a
--- putE :: (a -> IO ()) -> Event a -> Event a
-         
 
 newSource :: IO (a -> IO (), Event a)
 newSource = do
@@ -129,7 +125,12 @@ newSource = do
 newSink :: IO (IO (Maybe a), Event a -> Event ())
 newSink = undefined
 
+start :: Event a -> (a -> IO ()) -> IO () -> IO ()
+start = runE
 
+-- pollR :: IO a -> Reactive a
+-- putE :: (a -> IO ()) -> Event a -> Event a
+-- getE :: IO a -> Event a
 
 
 --------------------------------------------------------------------------------
@@ -462,10 +463,6 @@ noFun x = error x
 
 
 
-
--- Util
-start :: Event a -> (a -> IO ()) -> IO () -> IO ()
-start = runE
 
 main = do
     -- (i1,e1) <- newSource              
