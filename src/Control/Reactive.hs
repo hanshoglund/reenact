@@ -560,8 +560,9 @@ recallE :: Event a -> Event (a, a)
 recallE = recallEWith (,)
 
 -- |
--- Pack with last value.
+-- Pack with last value. Similar to @withPrevEWith@ in reactive but flipped.
 --
+
 -- recallEWith :: (a -> a -> b) -> Event a -> Event b
 -- recallEWith f = justE . fmap k . bufferE 2
 --     where
@@ -569,7 +570,6 @@ recallE = recallEWith (,)
 --         k [x]     = Nothing
 --         k (a:b:_) = Just $ f a b
 
--- Note: flipped order from Reactive
 recallEWith f e 
     = (joinMaybes' . fmap combineMaybes) 
     $ dup Nothing `accumE` fmap (shift . Just) e

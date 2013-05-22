@@ -52,6 +52,8 @@ applyPrim    :: Reactive (a -> b) -> Reactive a -> Reactive b
 stepperPrim  :: a -> Event a -> Reactive a
 accumPrim    :: a -> Event (a -> a) -> Reactive a
 snapshotPrim :: (a -> b -> c) -> Reactive a -> Event b -> Event c
+
+-- switcherPrim  :: Reactive a -> Event (Reactive a) -> Reactive a
 -- joinPrim     :: Reactive (Reactive a) -> Reactive a
 
 -- Handlers on empty are just ignored
