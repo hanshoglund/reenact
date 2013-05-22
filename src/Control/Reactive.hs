@@ -1209,7 +1209,8 @@ noOverloading ty meth = error $ meth ++ ": No overloading for " ++ ty
 kStdPulseInterval :: Fractional a => a
 kStdPulseInterval = (1/20)
 
-kLoopInterval = round $ (1/10) * 1000000 -- us
+kLoopInterval = round $ (1/20) * 1000000 -- us
+-- FIXME strange if lookInterval and stdPulse differ
 
 kStdPulse = pulse kStdPulseInterval
 
