@@ -1,13 +1,13 @@
 
 name:               reenact
-version:            0.7.4
-cabal-version:      >= 1.2
+version:            0.7.5
+cabal-version:      >= 1.6
 author:             Hans Hoglund
 maintainer:         Hans Hoglund
 license:            BSD3
 license-file:       COPYING
 synopsis:           A reimplementation of the Reactive library.
-category:           Music
+category:           Reactivity, FRP
 tested-with:        GHC
 build-type:         Simple
 
@@ -25,8 +25,7 @@ source-repository head
   type:             git
   location:         git://github.com/hanshoglund/reenact.git
   
-library                    
-    ghc-options: -threaded -O3
+library
     build-depends: 
         base       >= 4 && < 5,
         stm,
