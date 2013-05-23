@@ -12,15 +12,19 @@ tested-with:        GHC
 build-type:         Simple
 
 description: 
-    Reenact is a reimplementation of the "Reactive" library by Conal Elliott.
+    Reenact is a reimplementation of the /Reactive/ library by Conal Elliott.
 
     It preserves semantics and most operators of the original library. In
-    particular the @Monoid@, @Applicative@ and @Monad@ instances for 
-    @Events@, @Reactives@ and @Behaviours@ are available and have the original semantics.
+    particular the 'Monoid', 'Applicative' and 'Monad' instances for 
+    'Events', 'Reactives' and 'Behaviours' are available and have the original semantics.
 
     The implementation however is completely different, based on asynchronous
-    channels instead of the @unamb@ operator.
+    channels instead of the 'unamb' operator.
 
+source-repository head
+  type:             git
+  location:         git://github.com/hanshoglund/reenact.git
+  
 library                    
     ghc-options: -threaded -O3
     build-depends: 
