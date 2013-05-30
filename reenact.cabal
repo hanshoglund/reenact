@@ -1,9 +1,9 @@
 
 name:               reenact
-version:            0.7.5
+version:            0.8
 cabal-version:      >= 1.6
 author:             Hans Hoglund
-maintainer:         Hans Hoglund
+maintainer:         Hans Hoglund <hans@hanshoglund.se>
 license:            BSD3
 license-file:       COPYING
 synopsis:           A reimplementation of the Reactive library.
@@ -27,11 +27,11 @@ source-repository head
   
 library
     build-depends: 
-        base       >= 4 && < 5,
+        base       >= 4     && < 5,
         stm,
         time,
-        hamid      >= 0.6,
-        HCodecs    >= 0.2.2,
+        hamid      >= 0.10  && < 1,
+        HCodecs    >= 0.2.2 && < 1,
         -- hosc       == 0.13,
         -- semigroups,
         -- semigroupoids,

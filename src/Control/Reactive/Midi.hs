@@ -31,7 +31,7 @@ import Control.Reactive
 import Control.Reactive.Util
 
 import Codec.Midi hiding (Time, Track)
-import qualified System.MIDI            as Midi
+import qualified System.Midi as Midi
 
 type MidiSource      = Midi.Source
 type MidiDestination = Midi.Destination
